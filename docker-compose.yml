@@ -1,0 +1,33 @@
+# CFDP Class 2 closed-loop auditor.
+#
+# Host port is configurable, e.g.  HOST_PORT=9090 docker compose up web
+services:
+  web:
+    build: .
+    image: cfdp-class2-audit
+    environment:
+      CFDP_AUDIT_HOST: "0.0.0.0"
+      CFDP_AUDIT_PORT: "8080"
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2); sys.exit(0 if json.load(r)['status']=='ok' else 1)"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+      start_period: 3s
+
+  # One-shot acceptance service: runs in the same orchestration after the
+  # build check, waits for the service, performs the HTTP closed-loop smoke
+  # test, then the missing-segment repair / conflicting retransmission code
+  # tests, and exits with the acceptance result as its exit code.
+  verify:
+    build: .
+    image: cfdp-class2-audit
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      CFDP_AUDIT_BASE_URL: "http://web:8080"
+    restart: "no"
+    command: ["python", "-m", "app.verify"]
